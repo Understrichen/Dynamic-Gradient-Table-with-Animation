@@ -1,5 +1,5 @@
 # Dynamic Gradient Table with Animation
-
+## For DougDoug
 This project is a Flask-based web application that displays a dynamic HTML table with gradient-colored rows and animated text effects. The table updates automatically at intervals, fetching fresh data from the backend.
 
 ## 📦 Features
