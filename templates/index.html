@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="de"> <!-- Page language set to German -->
+
+<head>
+    <meta charset="UTF-8"> <!-- Define character encoding -->
+    <title>Dynamic Gradient Table</title> <!-- Title shown in browser tab -->
+    <style>
+        /* Basic body styling */
+        body {
+          font-family: Georgia, sans-serif; /* Font */
+          font-weight: bold;
+        }
+        
+        /* Basic table styling */
+        table {
+          border-collapse: collapse;  /* Remove double borders */
+          width: auto;
+          table-layout: auto;
+          font-size: 24px;  /* Large font for readability */
+        }
+        th, td {
+          border: none;  /* No cell borders */
+          padding: 4px 8px;  /* Padding around cell content */
+          white-space: nowrap;  /* Prevent line wrapping */
+        }
+
+        /* Classes for animated text effects */
+        .wave-text span,
+        .wave-flow-text span {
+          display: inline-block;
+          white-space: pre;  /* Keep whitespace characters */
+          transition: transform 0.2s ease;  /* Smooth transition for movement */
+        }
+
+        /* Animation keyframes for "wave" effect */
+        @keyframes wave {
+          0%,100% { transform: translateY(0); }   /* Default position */
+          50%     { transform: translateY(-8px); } /* Move text upward at midpoint */
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Empty table which will be dynamically populated with data -->
+    <table id="scoreTable"></table>
+
+    <script>
+        (function(){
+            // 1. Linear color interpolation function (Lerp)
+            function lerpColor(a, b, t){
+              const toRGB = hex => {
+                const n = parseInt(hex.slice(1), 16);  // Convert hex to decimal
+                return [n >> 16, (n >> 8) & 0xff, n & 0xff];  // Extract RGB channels
+              };
+              // Validate both color inputs are 6-digit hex
+              if (!/^#[0-9A-F]{6}$/i.test(a) || !/^#[0-9A-F]{6}$/i.test(b)) return "#000";
+              const [ar, ag, ab] = toRGB(a), [br, bg, bb] = toRGB(b);
+              // Interpolate each channel
+              const rr = Math.round(ar + t * (br - ar)),
+                    rg = Math.round(ag + t * (bg - ag)),
+                    rb = Math.round(ab + t * (bb - ab));
+              // Convert RGB back to hex format
+              return "#" + ((1 << 24) + (rr << 16) + (rg << 8) + rb).toString(16).slice(1);
+            }
+        
+            // 2. Function to render table rows with gradient coloring based on segments
+            function renderGradientTable(rows, tableId, segments) {
+              const tbl = document.getElementById(tableId);
+              let tbody = tbl.tBodies[0];
+              if (!tbody) tbody = tbl.createTBody();  // Create body if missing
+
+              // Calculate start and end indices for each color segment
+              let cum = 0;
+              const bounds = segments.map(s => {
+                const start = cum, end = cum + s.count;
+                cum += s.count;
+                return { start, end, ...s };
+              });
+
+              // Reuse existing rows if available
+              const existingRows = Array.from(tbody.rows);
+
+              // Loop through data and create/update table rows
+              rows.forEach((row, i) => {
+                let tr = existingRows[i];
+                if (!tr) {
+                  tr = tbody.insertRow();  // Insert new row
+                  tr.innerHTML = '<td class="wt-cell wf-cell"></td><td class="wt-cell wf-cell"></td>';
+                }
+
+                // Identify which color segment the current row belongs to
+                const seg = bounds.find(b => i >= b.start && i < b.end);
+                let t = 0;
+                if (seg) {
+                  const pos = i - seg.start;
+                  t = seg.count > 1 ? pos / (seg.count - 1) : 0;  // Position within segment
+                }
+
+                const td1 = tr.cells[0];
+                const td2 = tr.cells[1];
+
+                // Only update content if changed to prevent unnecessary reflows
+                if (td1.textContent !== row.name) {
+                  td1.textContent = row.name;
+                  delete td1.dataset.spanned;
+                }
+                if (td2.textContent !== String(row.score)) {
+                  td2.textContent = row.score;
+                  delete td2.dataset.spanned;
+                }
+
+                // Set text color based on gradient
+                if (seg) {
+                  td1.style.color = lerpColor(seg.startColor, seg.endColor, t);
+                  td2.style.color = lerpColor(seg.startColor, seg.endColor, t);
+                } else {
+                  td1.style.color = '';
+                  td2.style.color = '';
+                }
+              });
+
+              // Remove any leftover rows that are no longer needed
+              while (tbody.rows.length > rows.length) {
+                tbody.deleteRow(-1);
+              }
+            }
+        
+            // 3. Helper function to wrap each character in a span for animation
+            function ensureSpans(el, cls){
+              if (el.dataset.spanned === cls) return;  // Skip if already processed
+              el.dataset.spanned = cls;
+              const txt = el.textContent;
+              el.textContent = "";
+              el.classList.add(cls);  // Add animation class
+              [...txt].forEach(ch => {
+                const sp = document.createElement("span");
+                sp.textContent = ch;
+                el.appendChild(sp);
+              });
+            }
+        
+            // 4a. "wave" animation using requestAnimationFrame
+            let waveStartTime = null;
+            let waveRaf = null;
+
+            function waveText(sel, dur = 1200) {
+              if (waveRaf) cancelAnimationFrame(waveRaf);  // Stop previous animation
+              
+              const elements = [...document.querySelectorAll(sel)];
+              elements.forEach(el => ensureSpans(el, "wave-text"));  // Wrap letters
+
+              if (!waveStartTime) waveStartTime = performance.now();  // Set initial time
+              
+              const animate = () => {
+                const elapsed = performance.now() - waveStartTime;
+
+                // Animate each letter in a sine wave pattern
+                elements.forEach(el => {
+                  const spans = [...el.children];
+                  spans.forEach((sp, i) => {
+                    const phase = ((elapsed + (i * dur / spans.length)) % dur);
+                    const y = Math.sin((phase / dur) * Math.PI * 2) * -8;
+                    sp.style.transform = `translateY(${y}px)`;
+                  });
+                });
+
+                waveRaf = requestAnimationFrame(animate);  // Loop animation
+              };
+              
+              animate();
+            }
+
+            // 4b. "waveFlow" animation using a timed interval (flowing bounce)
+            function waveFlow(sel, iv = 200) {
+                const cells = [...document.querySelectorAll(sel)];
+                cells.forEach(el => ensureSpans(el, "wave-flow-text"));  // Wrap letters
+
+                // Only start interval once globally
+                if (!window._wf) {
+                    window._wfIdx = 0;
+                    window._wf = setInterval(() => {
+                        const spans = cells.flatMap(el => [...el.children]);
+                        spans.forEach((sp, i) => {
+                            sp.style.transform = (i === window._wfIdx % spans.length) 
+                                ? "translateY(-8px)"  // Active span jumps
+                                : "translateY(0)";    // Others reset
+                        });
+                        window._wfIdx++;
+                    }, iv);
+                }
+            }
+
+            // 5. Main update function to fetch data and trigger render and animation
+            function update() {
+                fetch("/data")
+                    .then(r => r.json())  // Parse JSON
+                    .then(cfg => {
+                        renderGradientTable(cfg.rows, "scoreTable", cfg.segments);  // Update table
+
+                        // Trigger appropriate animation based on effect
+                        requestAnimationFrame(() => {
+                            if (cfg.effect === "wave") {
+                                waveText("#scoreTable td", 1200);  // Start wave
+                                if (window._wf) {
+                                    clearInterval(window._wf);  // Stop waveFlow
+                                    window._wf = null;
+                                }
+                            } else {
+                                if (waveRaf) {
+                                    cancelAnimationFrame(waveRaf);  // Stop wave
+                                    waveRaf = null;
+                                    waveStartTime = null;
+                                }
+                                waveFlow("#scoreTable td", 150);  // Start waveFlow
+                            }
+                        });
+                    });
+            }
+
+            // Run update on page load and repeat at interval
+            window.onload = update;
+            setInterval(update, 300);  // Update every 0.3 seconds
+        
+        })();  // Immediately Invoked Function Expression (IIFE)
+    </script>
+</body>
+
+</html>
